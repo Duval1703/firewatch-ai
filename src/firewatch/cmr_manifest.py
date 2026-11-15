@@ -15,10 +15,10 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from .cmr_links import BROWSE_REL, DATA_REL, select_link as _select_link
+
 CMR_GRANULES_URL = "https://cmr.earthdata.nasa.gov/search/granules.json"
 PAGE_SIZE = 2000
-DATA_REL = "http://esipfed.org/ns/fedsearch/1.1/data#"
-BROWSE_REL = "http://esipfed.org/ns/fedsearch/1.1/browse#"
 
 # Standard, science-quality Level-2 swaths corresponding to the FIRMS sources.
 PRODUCTS = (
@@ -66,23 +66,6 @@ def build_query_url(
         "page_num": str(page_num),
     }
     return f"{CMR_GRANULES_URL}?{urlencode(params)}"
-
-
-def _select_link(links: list[dict[str, Any]], relation: str) -> str | None:
-    candidates = [
-        link for link in links
-        if link.get("rel") == relation
-        and not link.get("inherited", False)
-        and str(link.get("href", "")).startswith("https://")
-    ]
-    if relation == DATA_REL:
-        candidates = [
-            link for link in candidates
-            if "search.earthdata.nasa.gov/search/granules" not in link.get("href", "")
-        ]
-    if not candidates:
-        return None
-    return candidates[0].get("href")
 
 
 def acquisition_id(producer_granule_id: str) -> str:

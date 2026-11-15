@@ -12,15 +12,13 @@ from urllib.request import Request, urlopen
 import h5py
 from pyhdf.SD import SD, SDC
 
+from .cmr_links import BROWSE_REL, DATA_REL, select_link as _select_link
+
 CMR_GRANULES_URL = "https://cmr.earthdata.nasa.gov/search/granules.json"
 CMR_VERSION_BY_PRODUCT = {
     "MOD03": "6.1", "MYD03": "6.1", "VNP03IMG": "2",
     "VJ103IMG": "2.1", "VJ203IMG": "2.1",
 }
-DATA_REL = "http://esipfed.org/ns/fedsearch/1.1/data#"
-BROWSE_REL = "http://esipfed.org/ns/fedsearch/1.1/browse#"
-
-
 def _decode(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
@@ -79,17 +77,6 @@ def extract_geolocation_reference(l2_path: str | Path) -> dict[str, str]:
         "cmr_version": CMR_VERSION_BY_PRODUCT[short_name],
         "file_version_segment": filename.split(".")[3],
     }
-
-
-def _select_link(links: list[dict[str, Any]], relation: str) -> str | None:
-    options = [
-        item for item in links
-        if item.get("rel") == relation and not item.get("inherited", False)
-        and str(item.get("href", "")).startswith("https://")
-    ]
-    if relation == DATA_REL:
-        options = [item for item in options if "search.earthdata.nasa.gov/search/granules" not in item["href"]]
-    return options[0]["href"] if options else None
 
 
 def query_exact_geolocation_manifest(
