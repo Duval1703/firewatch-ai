@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+data/processed/*.parquet
+data/reference/granules/
