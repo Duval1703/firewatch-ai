@@ -9,7 +9,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from .analytics import build_daily_activity_calendar, summarize_calendar
+from .analytics import build_daily_activity_calendar
 from .association import find_candidate_links
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "processed" / "observations.parquet"
