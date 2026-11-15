@@ -7,6 +7,8 @@ from hashlib import sha256
 from pathlib import Path
 import pandas as pd
 
+from .checksums import sha256_file as _sha256_file
+
 PIPELINE_VERSION = "0.1.0"
 PRODUCT_CODES = ("M-C61", "SV-C2", "J1V-C2", "J2V-C2")
 REQUIRED_SOURCE_FIELDS = (
@@ -42,11 +44,7 @@ class SourceDescriptor:
 
 
 def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
-    digest = sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(chunk_size), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return _sha256_file(path, chunk_size)
 
 
 def infer_product_code(path: Path) -> str:

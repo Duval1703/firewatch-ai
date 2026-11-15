@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
 import h5py
 import numpy as np
 from pyhdf.SD import SD, SDC
+
+from .checksums import sha256_file as _sha256_file
 
 EARTH_RADIUS_KM = 6371.0088
 MODIS_MASK_LABELS = {
@@ -44,11 +45,7 @@ class _HDF4ArrayAdapter:
 
 
 def sha256_file(path: str | Path, chunk_bytes: int = 8 * 1024 * 1024) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        while chunk := stream.read(chunk_bytes):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return _sha256_file(Path(path), chunk_bytes)
 
 
 def _distance_km(lat: np.ndarray, lon: np.ndarray, target_lat: float, target_lon: float) -> np.ndarray:
