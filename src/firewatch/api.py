@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import gzip
 from contextlib import asynccontextmanager
 from pathlib import Path
 import pandas as pd
@@ -11,8 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .analytics import build_daily_activity_calendar
 from .association import find_candidate_links
+from .forecast import forecast_observation_volume
 
-DEFAULT_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "processed" / "observations.parquet"
+DATA_DIRECTORY = Path(__file__).resolve().parents[2] / "data" / "processed"
+DEPLOY_DATA_PATH = DATA_DIRECTORY / "observations.deploy.parquet.gz"
+DEFAULT_DATA_PATH = DEPLOY_DATA_PATH if DEPLOY_DATA_PATH.is_file() else DATA_DIRECTORY / "observations.parquet"
 OBSERVATION_COLUMNS = [
     "observation_id", "source_file", "year_folder", "product_code", "stream_type",
     "satellite", "latitude_num", "longitude_num", "observation_datetime_utc",
@@ -25,9 +29,13 @@ class ObservationStore:
         if not path.is_file():
             raise FileNotFoundError(f"Normalized observation file not found: {path}")
         self.path = path
-        self.frame = pd.read_parquet(path, columns=OBSERVATION_COLUMNS)
-        self.frame["observation_datetime_utc"] = pd.to_datetime(
-            self.frame["observation_datetime_utc"], utc=True
+        source = gzip.open(path, "rb") if path.suffix == ".gz" else path
+        self.frame = pd.read_parquet(source, columns=OBSERVATION_COLUMNS, dtype_backend="pyarrow")
+        utc_values = self.frame["observation_datetime_utc"].to_numpy(
+            dtype="datetime64[ns]"
+        )
+        self.frame["observation_datetime_utc"] = pd.Series(
+            pd.to_datetime(utc_values, utc=True)
         )
 
     def filter(
@@ -74,7 +82,7 @@ def create_app(data_path: Path | None = None) -> FastAPI:
         application.state.store = ObservationStore(source_path)
         yield
 
-    app = FastAPI(title="FIREWATCH AI API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="FIREWATCH Observation API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -187,6 +195,23 @@ def create_app(data_path: Path | None = None) -> FastAPI:
             .sort_values(["month", "product_code", "satellite", "stream_type"])
             .to_dict("records")
         )
+
+    @app.get("/api/forecast")
+    def forecast(
+        horizon_days: int = Query(default=7, ge=1, le=14),
+        satellites: str | None = None,
+        products: str | None = None,
+        streams: str | None = None,
+    ):
+        """Forecast historical daily source-row volume; this is not fire-risk prediction."""
+        frame = store().frame
+        if values := _parse_filter(satellites):
+            frame = frame.loc[frame.satellite.isin(values)]
+        if values := _parse_filter(products):
+            frame = frame.loc[frame.product_code.isin(values)]
+        if values := _parse_filter(streams):
+            frame = frame.loc[frame.stream_type.isin(values)]
+        return forecast_observation_volume(frame, horizon_days=horizon_days)
 
     @app.get("/api/summary")
     def summary(

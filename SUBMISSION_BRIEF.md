@@ -11,12 +11,13 @@ FIRMS distributes observations from multiple instruments with different spatial 
 ## What is working
 
 - Source-preserving ingestion of the supplied 2025 and 2026 FIRMS extracts into a reproducible Parquet dataset.
-- Interactive local application with eight separate browser routes: Overview, Satellite explorer, Activity calendar, Fire analytics, Anomaly intelligence, Candidate links, Reports, and Data quality.
+- Interactive local application with a project landing page and nine workspace routes: Overview, Satellite explorer, Activity calendar, Fire analytics, Alerts & forecast, Candidate links, Reports, Data quality, and Data assistant.
 - Shared platform and stream filters, period-aware date selection, browser back/forward navigation, interactive map, daily calendar, platform comparisons, and candidate-link overlays.
 - Historical monthly source-row comparison with missing months presented as unknown coverage.
-- Explainable within-month robust-Z screen for high daily observation volume (median/MAD, default threshold 3.5, minimum 14 observed days); explicitly not a seasonal anomaly or wildfire-prediction model.
+- Explainable within-month robust-Z screen for high daily observation volume (median/MAD, adjustable threshold, minimum 14 observed days), surfaced as archive review alerts.
+- Seven-day seasonal-window forecast of valid daily FIRMS row volume, with chronological baseline comparison and an in-app watch when expected volume exceeds the historical calendar-month 90th percentile. It forecasts observation records, not fires or fire risk, and is not a live alert feed.
 - Candidate association controls for distance/time, platform/family filtering, evidence table, and CSV export. The default October 2025 example returns 3,985 pairs at 1 km / 3 h; these are candidate pairs, not confirmed events.
-- Printable observation report (browser Save as PDF) containing measured activity, platform totals, candidate-link summary, anomaly-screen context, and scientific limits; daily and platform CSV exports.
+- Printable observation report (browser Save as PDF) containing measured activity, platform totals, candidate-link summary, row-volume forecast/backtest and scientific limits; daily and platform CSV exports.
 - Data quality/provenance page and read-only API inventory covering validation status, duplicate identifiers, missing values, source files, products, satellites, streams, and years.
 - FastAPI read-only data endpoints and a Vite/React/Leaflet client.
 - Native MODIS HDF4 and VIIRS NetCDF4/HDF5 readers, bounded NASA granule retrieval, checksum manifests, and executable Jupyter notebooks.
@@ -31,11 +32,11 @@ In one linked July 6, 2025 case, Aqua, NOAA-20, and NOAA-21 source pixels were c
 ## Demo walkthrough (3–4 minutes)
 
 1. Start the API and web client using README commands; open the local Vite URL.
-2. Use the left sidebar to visit all eight pages. On mobile, swipe the module bar horizontally.
+2. Use the left sidebar to visit the workspace modules. On mobile, swipe the module bar horizontally.
 3. Choose a month and toggle individual satellites and streams. Point out how period views and cross-page platform filters change the map, calendar, platform breakdown, and pair results.
 4. Select a daily chart bar to focus the map and counts on that day; use the clear-day control to return to the full month.
 5. Open Candidate links and explain that lines encode distance/time proximity, not confirmed fire identity.
-6. Show the robust-Z anomaly screen and explain it as a within-month observation-volume flag; it is not a seasonal baseline or fire forecast.
+6. Show Alerts & forecast. Explain the archive high-volume review flags and the seven-day seasonal row-volume forecast; neither predicts wildfire occurrence or risk. Point out the archive cutoff, backtest comparison and stale-data warning.
 7. Generate the observation report and CSV exports, then show `notebooks/19_three_sensor_pixel_opportunity.ipynb` and `notebooks/22_unlinked_opportunity_coverage.ipynb` for native-mask coverage examples.
 8. End with the main limitation: no independent ground-truth reference sample or population accuracy metric has been established yet.
 
@@ -53,10 +54,12 @@ Install Python dependencies from the repository root with `py -3.11 -m pip insta
 
 ## Verification snapshot
 
-- Production frontend build: `npm run build` passed on 2026-11-15. Vite reports an 801.53 kB minified JavaScript chunk (235.53 kB gzip), a non-blocking bundle optimization opportunity.
+- Production frontend build: `npm run build` passed on 2026-11-15. Vite reports an 822.95 kB minified JavaScript chunk (241.34 kB gzip), a non-blocking bundle optimization opportunity.
 - Live local API: `/api/health` returned `ok` and 1,130,027 rows; `/api/quality` reports 1,130,027 valid records, zero duplicate IDs, and zero missing values in the inspected fields. `/api/trends` returned 115 source/platform/month groups.
-- Full Python suite: 38 tests passed. Frontend browser smoke checks visited all eight routes, exercised shared platform/month filters, selected a calendar day, recalculated candidate results after parameter changes, exported a real CSV, and checked browser history with no uncaught runtime exceptions.
-- Mobile emulation: 390 px viewport has no page-level horizontal overflow; the month input was visually corrected and rechecked. Desktop, mobile, analytics, and report screenshots are in `reports/`.
+- Full Python suite: 45 tests passed. This includes forecast engine and API endpoint checks.
+- Live forecast API: 306-day chronological holdout MAE 936.4 rows/day versus 1,021.5 for the same-date-last-year baseline; WAPE 68.6%. Forecast output is experimental and uses an archive cutoff of 2026-11-02.
+- The updated landing page, alerts view, and adjusted typography were not fully browser-tested in this pass. Run a desktop/mobile click-through before the final presentation.
+- Prior desktop/mobile screenshots in `reports/` document the earlier dashboard build; they are not a visual baseline for the updated landing and alerts view.
 - Browser print output was rendered and checked as a one-page A4 report: `reports/FIREWATCH_AI_Cameroon_2025-10_Report.pdf`. There is no committed visual baseline or automated axe-core audit; describe the coverage as manual smoke testing.
 
 ## Submission checklist

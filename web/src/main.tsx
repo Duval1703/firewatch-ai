@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ArrowDownToLine, CalendarDays, Check, ChevronDown,
-  ChartNoAxesCombined, CircleHelp, Crosshair, Database, Flame, Gauge, Layers3,
+  ArrowRight, ChartNoAxesCombined, CircleHelp, Crosshair, Database, Flame, Gauge, Layers3,
   MessageSquareText, Send, Trash2,
   MapPinned, RadioTower, Satellite, ShieldCheck, SlidersHorizontal, X,
 } from 'lucide-react'
@@ -16,7 +16,7 @@ import type { LatLngTuple } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './style.css'
 
-type Page = 'overview' | 'satellites' | 'calendar' | 'analytics' | 'anomalies' | 'links' | 'reports' | 'quality' | 'assistant'
+type Page = 'home' | 'overview' | 'satellites' | 'calendar' | 'analytics' | 'anomalies' | 'links' | 'reports' | 'quality' | 'assistant'
 type Source = { product_code: string; satellite: string; stream_type: string; records: number }
 type Metadata = { date_min: string; date_max: string; total_records: number; sources: Source[]; limitations: string[] }
 type SummarySource = { product_code: string; satellite: string; stream_type: string; detections: number }
@@ -44,6 +44,14 @@ type Quality = {
   date_min: string; date_max: string; source_files: number
 }
 type TrendRow = { month: string; product_code: string; satellite: string; stream_type: string; detection_count: number; dates_with_rows: number }
+type ForecastDay = { date: string; expected_rows: number; historical_month_p90_rows: number | null; watch: boolean }
+type ForecastMetric = { mae: number; rmse: number; wape: number | null }
+type ForecastResult = {
+  status: string; model: string; target: string; history_days?: number; required_history_days?: number;
+  data_as_of?: string; data_stale_days?: number; horizon_days?: number; forecasts?: ForecastDay[];
+  backtest?: { method: string; holdout_days: number; model: ForecastMetric; seasonal_naive_365d: ForecastMetric; beats_seasonal_naive_on_mae: boolean };
+  alert_rule?: string
+}
 
 const COLORS: Record<string, string> = { 'M-C61': '#df8a48', 'SV-C2': '#91aa67', 'J1V-C2': '#44aaa0', 'J2V-C2': '#6e9fc7' }
 const PRODUCT_LABELS: Record<string, string> = { 'M-C61': 'MODIS · Terra/Aqua', 'SV-C2': 'VIIRS · Suomi-NPP', 'J1V-C2': 'VIIRS · NOAA-20', 'J2V-C2': 'VIIRS · NOAA-21' }
@@ -54,16 +62,17 @@ const PLATFORMS: Record<string, { product: string; description: string; instrume
   N20: { product: 'J1V-C2', description: 'NOAA-20 VIIRS observations; kept distinct from other VIIRS platforms.', instrument: 'VIIRS · 375 m active fire' },
   N21: { product: 'J2V-C2', description: 'NOAA-21 VIIRS observations; kept distinct from other VIIRS platforms.', instrument: 'VIIRS · 375 m active fire' },
 }
-const NAV: Array<{ id: Page; label: string; icon: typeof Activity; note: string }> = [
-  { id: 'overview', label: 'Overview', icon: Activity, note: 'Live situation' },
-  { id: 'satellites', label: 'Satellite explorer', icon: Satellite, note: 'Compare instruments' },
-  { id: 'calendar', label: 'Activity calendar', icon: CalendarDays, note: 'Daily record' },
-  { id: 'analytics', label: 'Fire analytics', icon: Gauge, note: 'Historical patterns' },
-  { id: 'anomalies', label: 'Anomaly intelligence', icon: ChartNoAxesCombined, note: 'Explainable signals' },
-  { id: 'links', label: 'Candidate links', icon: Layers3, note: 'Cross-sensor evidence' },
-  { id: 'reports', label: 'Reports', icon: ArrowDownToLine, note: 'Export findings' },
-  { id: 'quality', label: 'Data quality', icon: ShieldCheck, note: 'Lineage and checks' },
-  { id: 'assistant', label: 'Data assistant', icon: MessageSquareText, note: 'Ask about this view' },
+const NAV: Array<{ id: Page; label: string; icon: typeof Activity }> = [
+  { id: 'home', label: 'Home', icon: MapPinned },
+  { id: 'overview', label: 'Overview', icon: Activity },
+  { id: 'satellites', label: 'Satellite explorer', icon: Satellite },
+  { id: 'calendar', label: 'Activity calendar', icon: CalendarDays },
+  { id: 'analytics', label: 'Fire analytics', icon: Gauge },
+  { id: 'anomalies', label: 'Alerts & forecast', icon: ChartNoAxesCombined },
+  { id: 'links', label: 'Candidate links', icon: Layers3 },
+  { id: 'reports', label: 'Reports', icon: ArrowDownToLine },
+  { id: 'quality', label: 'Data quality', icon: ShieldCheck },
+  { id: 'assistant', label: 'Data assistant', icon: MessageSquareText },
 ]
 const fmt = (value: number) => new Intl.NumberFormat('en-US').format(value)
 const median = (values: number[]) => {
@@ -151,14 +160,14 @@ function FireMap({ result, links, onZoom }: { result: MapResult | null; links?: 
 function Legend() { return <div className="map-legend">{Object.entries(PRODUCT_LABELS).map(([product, label]) => <span key={product}><i style={{ background: COLORS[product] }} />{label}</span>)}</div> }
 function FirewatchMark({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 40 40" fill="none" aria-hidden="true">
-    <circle cx="20" cy="20" r="14.5" stroke="currentColor" strokeWidth="1.15" strokeOpacity=".55" />
-    <circle cx="20" cy="20" r="8.5" stroke="currentColor" strokeWidth="1.15" strokeOpacity=".82" />
-    <path d="M20 2.5v6M20 31.5v6M2.5 20h6M31.5 20h6" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
-    <circle cx="20" cy="20" r="2.7" fill="#e6a05c" />
+    <path d="m24 5 10 10-9 9-10-10 9-9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="m18 13-8-5-4 5 8 7M27 22l6 8 5-5-8-7M21 18 12 27" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M5 35h30M10 33l5-4 4 3 5-7 5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="24" cy="25" r="2.5" fill="#e68b4b" />
   </svg>
 }
 function PageHeading({ icon: Icon, title, subtitle, children }: { icon: typeof Activity; title: string; subtitle: string; children?: ReactNode }) {
-  return <div className="page-heading"><div><div className="heading-kicker"><Icon size={15} /> FIRMS observation intelligence</div><h1>{title}</h1><p className="heading-sub">{subtitle}</p></div>{children}</div>
+  return <div className="page-heading"><div><div className="page-heading-title"><Icon size={21} /><h1>{title}</h1></div><p className="heading-sub">{subtitle}</p></div>{children}</div>
 }
 function Metric({ icon: Icon, value, label, detail, tone = 'orange' }: { icon: typeof Activity; value: string; label: string; detail?: string; tone?: string }) {
   return <article className={`metric-card metric-${tone}`}><span className="metric-icon"><Icon size={18} /></span><div><strong>{value}</strong><span>{label}</span>{detail && <small>{detail}</small>}</div></article>
@@ -168,11 +177,58 @@ function MapPanel({ result, links, onZoom, title = 'Detection map', subtitle, ac
     <div className="map-heading-actions">{action}<span className="map-count"><i />{fmt(result?.total_detections ?? 0)} rows</span></div></div><div className="map-wrap"><FireMap result={result} links={links} onZoom={onZoom} /></div><Legend /></section>
 }
 
+function LandingPage({ metadata, onEnter }: { metadata: Metadata | null; onEnter: () => void }) {
+  const platformCount = new Set(metadata?.sources.map(source => source.satellite) ?? []).size || 5
+  return <div className="landing-shell">
+    <header className="landing-nav">
+      <a href="#home" className="landing-brand"><span className="landing-brand-mark"><FirewatchMark /></span><span><strong>FIREWATCH</strong><small>Satellite fire observations</small></span></a>
+      <nav aria-label="Landing page navigation"><a href="#method">Method</a><a href="#imagery">Satellite imagery</a></nav>
+      <button className="landing-nav-cta" onClick={onEnter}>Open the atlas <ArrowRight size={15} /></button>
+    </header>
+    <main>
+      <section className="landing-hero">
+        <div className="landing-hero-copy">
+          <p className="landing-kicker">Cameroon · NASA FIRMS archive</p>
+          <h1>Fire, observed<br />from space.</h1>
+          <p className="landing-lede">Five satellite platforms. One reviewable record. Compare where MODIS and VIIRS observations overlap, while keeping each sensor’s evidence intact.</p>
+          <div className="landing-actions"><button className="landing-primary" onClick={onEnter}>Explore the fire atlas <ArrowRight size={17} /></button><a className="landing-secondary" href="#method">See the method</a></div>
+          <div className="landing-proof"><strong>{metadata ? new Intl.NumberFormat('en-US').format(metadata.total_records) : '1.13 million'}</strong><span>observations · {platformCount} satellite platforms</span></div>
+        </div>
+        <figure className="hero-earth"><img src="/imagery/west-africa-modis-2008.jpg" alt="NASA Aqua MODIS image of West Africa during the 2008 dry season, with active fire detections marked in red" fetchPriority="high" /><figcaption><span>Aqua MODIS · West Africa · 22 Jan 2008</span><a href="https://science.nasa.gov/earth/earth-observatory/agricultural-fires-in-west-africa-19528/" target="_blank" rel="noreferrer">NASA image and caption ↗</a></figcaption></figure>
+      </section>
+      <div className="landing-sourcebar" aria-label="Satellite instruments and platforms">
+        <strong>MODIS</strong><span>Terra</span><span>Aqua</span><i />
+        <strong>VIIRS</strong><span>Suomi-NPP</span><span>NOAA-20</span><span>NOAA-21</span>
+      </div>
+      <section className="landing-approach" id="method">
+        <div className="landing-section-intro"><p className="landing-kicker">How the evidence is handled</p><h2>Different views.<br />A traceable comparison.</h2><p>The instruments do not observe identical pixels or at identical times. FIREWATCH keeps those differences visible while connecting records that fall within documented space and time limits.</p></div>
+        <div className="approach-cards">
+          <article><span className="approach-icon">01</span><h3>Preserve the observation</h3><p>Keep platform, product, processing stream, timestamp and native quality fields with every source row.</p></article>
+          <article><span className="approach-icon">02</span><h3>Review nearby passes</h3><p>Link candidate pairs with adjustable distance and time limits. A link is not a confirmed shared fire.</p></article>
+          <article><span className="approach-icon">03</span><h3>Follow the calendar</h3><p>Use the same month and sensor filters across the map, source comparison and activity calendar.</p></article>
+        </div>
+      </section>
+      <section className="landing-preview" id="imagery">
+        <figure className="preview-image"><img src="/imagery/west-africa-viirs-2015.jpg" alt="NASA Suomi-NPP VIIRS image of smoke drifting across West Africa on December 10, 2015" loading="lazy" /><figcaption><strong>Smoke carries the signal beyond a hotspot.</strong><span>Suomi-NPP VIIRS · West Africa · 10 Dec 2015</span><a href="https://science.nasa.gov/earth/earth-observatory/the-intersection-of-fire-and-rain-88775/" target="_blank" rel="noreferrer">NASA image and caption ↗</a></figcaption></figure>
+        <div className="preview-copy"><p className="landing-kicker">Satellite imagery, with context</p><h2>The image is regional context.<br />The data view is Cameroon.</h2><p>These archival scenes show how satellite fire products look across West Africa. They are not current conditions and are not the Cameroon records shown in the atlas.</p><button className="landing-primary" onClick={onEnter}>Open the Cameroon archive <ArrowRight size={16} /></button></div>
+      </section>
+      <section className="landing-trust">
+        <div className="trust-copy"><p className="landing-kicker">Interpretation</p><h2>Evidence, not event claims.</h2><p>Hotspots are satellite observations. Candidate links are review leads, not unique fire events. No rows means the archive has no matching record—not proof of no fire.</p><button className="trust-link" onClick={onEnter}>Inspect data quality and methods <ArrowRight size={15} /></button></div>
+        <div className="trust-points"><p>Observation counts are not counts of unique fires.</p><p>MODIS and VIIRS quality fields remain product-specific.</p><p>The displayed archive is historical and does not send live alarms.</p></div>
+      </section>
+    </main>
+    <footer className="landing-footer"><a className="landing-brand" href="#home"><span className="landing-brand-mark"><FirewatchMark /></span><span><strong>FIREWATCH</strong><small>Satellite fire observations</small></span></a><span>Cameroon · NASA FIRMS archive</span><button onClick={onEnter}>Open the atlas <ArrowRight size={14} /></button></footer>
+  </div>
+}
+
 function App() {
-  const [page, setPage] = useState<Page>(() => (NAV.some(item => item.id === location.hash.slice(1)) ? location.hash.slice(1) as Page : 'overview'))
+  const [page, setPage] = useState<Page>(() => (NAV.some(item => item.id === location.hash.slice(1)) ? location.hash.slice(1) as Page : 'home'))
   const [metadata, setMetadata] = useState<Metadata | null>(null)
   const [quality, setQuality] = useState<Quality | null>(null)
   const [trends, setTrends] = useState<TrendRow[]>([])
+  const [forecast, setForecast] = useState<ForecastResult | null>(null)
+  const [forecastBusy, setForecastBusy] = useState(false)
+  const [forecastError, setForecastError] = useState('')
   const [month, setMonth] = useState('2025-10')
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [satellites, setSatellites] = useState<string[]>([])
@@ -207,9 +263,9 @@ function App() {
     setPage(next); window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
   useEffect(() => {
-    const onPop = () => setPage(NAV.some(item => item.id === location.hash.slice(1)) ? location.hash.slice(1) as Page : 'overview')
+    const onPop = () => setPage(NAV.some(item => item.id === location.hash.slice(1)) ? location.hash.slice(1) as Page : 'home')
     window.addEventListener('popstate', onPop)
-    if (!location.hash) history.replaceState({}, '', '#overview')
+    if (!location.hash) history.replaceState({}, '', '#home')
     return () => window.removeEventListener('popstate', onPop)
   }, [])
   useEffect(() => {
@@ -243,6 +299,18 @@ function App() {
       .catch(reason => { if (reason.name !== 'AbortError') setError('Historical analytics could not be loaded.') })
     return () => controller.abort()
   }, [page, metadata, satellites, streams])
+  useEffect(() => {
+    if (page !== 'anomalies' && page !== 'reports') return
+    const controller = new AbortController()
+    const query = new URLSearchParams()
+    if (satellites.length) query.set('satellites', satellites.join(','))
+    if (streams.length) query.set('streams', streams.join(','))
+    setForecastBusy(true); setForecastError('')
+    getJson<ForecastResult>(`/api/forecast?${query}`, controller.signal).then(setForecast)
+      .catch(reason => { if (reason.name !== 'AbortError') setForecastError('The observation forecast could not be calculated.') })
+      .finally(() => { if (!controller.signal.aborted) setForecastBusy(false) })
+    return () => controller.abort()
+  }, [page, satellites, streams])
   useEffect(() => {
     if (page !== 'links' && page !== 'reports' && !showLinks) { setCandidates(null); setLinkError(''); return }
     const controller = new AbortController(); setLinkError('')
@@ -307,6 +375,9 @@ function App() {
   const mad = median(observedDays.map(value => Math.abs(value - medianDaily)))
   const anomalyRows = mad > 0 ? calendarDays.filter(day => day.hasRows).map(day => ({ ...day, robustScore: .6745 * (day.detections - medianDaily) / mad })).filter(day => day.robustScore >= anomalyCutoff).sort((a, b) => b.robustScore - a.robustScore) : []
   const reportTimestamp = new Date().toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })
+  const forecastTotal = forecast?.forecasts?.reduce((sum, day) => sum + day.expected_rows, 0) ?? 0
+  const forecastWindowEnd = forecast?.forecasts?.at(-1)?.date
+  const forecastWindowPast = Boolean(forecastWindowEnd && forecastWindowEnd < new Date().toISOString().slice(0, 10))
   const quarantinedRows = Object.entries(quality?.validation_status ?? {}).filter(([status]) => status !== 'valid').reduce((sum, [, count]) => sum + count, 0)
   const toggleSatellite = (value: string) => {
     const active = satellites.length ? satellites : allSatellites
@@ -335,7 +406,7 @@ function App() {
   }
 
   const globalControls = <section className="global-controls" aria-label="Shared observation filters">
-    <div className="global-control-top"><div className="filter-label"><SlidersHorizontal size={15} /><span>Shared filters</span><small>Platforms and streams sync · period follows the selected view</small></div>
+    <div className="global-control-top"><div className="filter-label"><SlidersHorizontal size={15} /><span>Shared filters</span></div>
       <div className="period-control"><CalendarDays size={16} /><label htmlFor="month-picker">Observation month · UTC</label><input id="month-picker" type="month" min="2025-01" max="2026-11" value={month} onChange={event => { setMonth(event.target.value); setSelectedDay(null) }} /></div>
     </div>
     <div className="filter-row"><div className="filter-label"><Satellite size={14} /><span>Platforms</span></div><div className="filter-group" aria-label="Satellite platform filters">{allSatellites.map(satellite => {
@@ -347,19 +418,21 @@ function App() {
     })}</div>{selectedDay && <button className="clear-day" onClick={() => setSelectedDay(null)}><X size={13} /> {selectedDay}<span>Clear day</span></button>}</div>
   </section>
 
+  if (page === 'home') return <LandingPage metadata={metadata} onEnter={() => navigate('overview')} />
+
   return <div className="app-shell">
-    <header className="topbar"><a className="brand" href="#overview" onClick={event => { event.preventDefault(); navigate('overview') }} aria-label="FIREWATCH home"><span className="brand-mark"><FirewatchMark /></span><span className="brand-wordmark"><strong>FIREWATCH</strong><small>EARTH OBSERVATION</small></span></a>
-      <div className="topbar-location"><MapPinned size={15} /><span>Cameroon</span><ChevronDown size={13} /></div><div className="topbar-spacer" /><div className="service-state"><span className={metadata ? 'service-dot online' : 'service-dot'} />{metadata ? `${fmt(metadata.total_records)} source rows connected` : 'Connecting to FIRMS data'}</div></header>
-    <div className="app-body"><aside className="sidebar" aria-label="FIREWATCH modules"><div className="sidebar-heading"><span>FIRE INTELLIGENCE</span><small>Cameroon workspace</small></div>
-      <nav className="sidebar-nav" aria-label="Main navigation">{NAV.map(item => { const Icon = item.icon; return <a key={item.id} href={`#${item.id}`} className={page === item.id ? 'sidebar-link active' : 'sidebar-link'} aria-current={page === item.id ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item.id) }}><Icon size={17} /><span className="nav-link-copy"><strong>{item.label}</strong><small>{item.note}</small></span>{item.id === 'links' && showLinks && <i className="sidebar-status-dot" />}</a> })}</nav>
-      <div className="sidebar-foot"><span className="sidebar-status-dot" />NASA FIRMS archive<br /><small>MODIS + three VIIRS sources</small></div></aside>
+    <header className="topbar"><a className="brand" href="#home" onClick={event => { event.preventDefault(); navigate('home') }}><span className="brand-mark"><FirewatchMark /></span><span className="brand-wordmark"><strong>FIREWATCH</strong><small>EARTH OBSERVATION</small></span></a>
+      <div className="topbar-location"><MapPinned size={15} /><span>Cameroon</span><ChevronDown size={13} /></div><div className="topbar-spacer" /><div className="service-state"><span className={metadata ? 'service-dot online' : 'service-dot'} />{metadata ? 'Archive connected' : 'Connecting to archive'}</div></header>
+    <div className="app-body"><aside className="sidebar" aria-label="FIREWATCH modules"><div className="sidebar-heading"><span>FIREWATCH</span><strong>Cameroon workspace</strong></div>
+      <nav className="sidebar-nav" aria-label="Main navigation">{NAV.map(item => { const Icon = item.icon; return <a key={item.id} href={`#${item.id}`} className={page === item.id ? 'sidebar-link active' : 'sidebar-link'} aria-current={page === item.id ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(item.id) }}><Icon size={17} /><span className="nav-link-copy"><strong>{item.label}</strong></span>{item.id === 'links' && showLinks && <i className="sidebar-status-dot" />}</a> })}</nav>
+      <div className="sidebar-foot"><span className="sidebar-status-dot" /><strong>NASA FIRMS archive</strong></div></aside>
       <main className="workspace" key={page}>
         <div className="breadcrumbs"><span>Workspace</span><b>/</b><strong>{activeNav.label}</strong><span className="breadcrumb-period">{selectedDay ?? month} · UTC</span></div>
         {globalControls}
         {error && <div className="error-banner" role="alert"><AlertTriangle size={16} />{error}<button onClick={() => window.location.reload()}>Reload</button></div>}
 
         {page === 'overview' && <>
-          <PageHeading icon={Activity} title="Fire activity in Cameroon" subtitle="A live view of NASA satellite thermal-anomaly observations across the country." />
+          <PageHeading icon={Activity} title="Fire activity in Cameroon" subtitle="Explore NASA FIRMS thermal-anomaly observations across the selected archive period." />
           <div className="metric-grid overview-metrics"><Metric icon={Flame} value={fmt(summary?.total_detections ?? 0)} label="Detection records" detail={selectedDay ? `On ${selectedDay}` : `Across ${month}`} /><Metric icon={CalendarDays} value={fmt(summary?.dates_with_rows ?? 0)} label="Dates with records" detail="UTC observation days" tone="teal" /><Metric icon={Satellite} value={String(satellites.length || allSatellites.length)} label="Platforms selected" detail="MODIS + VIIRS missions" tone="blue" /><Metric icon={Crosshair} value={fmt(mapResult?.displayed_cells ?? 0)} label="Map cells shown" detail={busy ? 'Refreshing selection…' : mapResult?.sampled ? 'Reproducible map sample' : 'Spatially aggregated view'} tone="green" /></div>
           <div className="overview-grid"><MapPanel result={mapResult} links={showLinks ? candidates?.links : undefined} onZoom={setZoom} subtitle={showLinks ? 'Dashed lines are proximity candidates; they are not confirmed shared fires.' : undefined} action={<button className={showLinks ? 'link-toggle active' : 'link-toggle'} onClick={() => setShowLinks(value => !value)} aria-pressed={showLinks}><Layers3 size={14} />{showLinks ? 'Hide links' : 'Show links'}</button>} />
             <div className="right-stack"><section className="panel source-panel"><div className="panel-heading"><div><div className="section-title"><RadioTower size={16} /><h2>Observations by platform</h2></div><p>Click a row to filter the whole workspace</p></div></div><SourceBars items={bySatellite} onToggle={toggleSatellite} satellites={satellites} /></section>
@@ -410,12 +483,28 @@ function App() {
         </>}
 
         {page === 'anomalies' && <>
-          <PageHeading icon={ChartNoAxesCombined} title="Anomaly intelligence" subtitle="A transparent screen for unusually high daily observation volume in the selected month." />
-          <section className="anomaly-method panel"><div className="method-intro"><span><ChartNoAxesCombined size={17} /></span><div><strong>Robust within-month outlier screen</strong><p>Compares observed days in this month using the median and median absolute deviation (MAD). The modified robust Z-score highlights high-volume days only.</p></div></div><label>Robust score threshold <span><input type="number" min="2" max="5" step="0.5" value={anomalyCutoff} onChange={event => setAnomalyCutoff(Math.max(2, Math.min(5, Number(event.target.value) || 3.5)))} /></span></label><span className="method-version">modified Z ≥ {anomalyCutoff}</span></section>
-          <div className="anomaly-caveat"><AlertTriangle size={17} /><p><strong>Interpretation limit:</strong> this is an observation-volume flag, not a fire-event or wildfire alarm. It does not adjust for satellite overpass, clear-sky coverage, or seasonal baselines. No rows remain unknown coverage and are excluded from its baseline.</p></div>
-          <div className="metric-grid anomaly-metrics"><Metric icon={CalendarDays} value={fmt(observedDays.length)} label="Days with observations" detail="No-row days excluded" tone="teal" /><Metric icon={Activity} value={fmt(medianDaily)} label="Median rows / observed day" detail="Selected month and sources" tone="blue" /><Metric icon={Gauge} value={mad ? fmt(mad) : '0'} label="Median absolute deviation" detail="Robust dispersion estimate" tone="green" /><Metric icon={AlertTriangle} value={String(anomalyRows.length)} label="High-volume flags" detail={`Robust score ≥ ${anomalyCutoff}`} /></div>
-          <div className="anomaly-layout"><section className="panel"><div className="panel-heading"><div><div className="section-title"><Activity size={15} /><h2>Daily counts and flagged days</h2></div><p>Choose a bar to focus other pages on that date</p></div></div><div className="analytics-chart anomaly-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={calendarDays.map(day => ({ ...day, label: day.date.slice(-2), anomaly: anomalyRows.some(row => row.date === day.date) }))} margin={{ top: 15, right: 15, bottom: 10, left: 0 }}><CartesianGrid vertical={false} stroke="#e5e8e2" /><XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#758078', fontSize: 9 }} interval="preserveStartEnd" /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#758078', fontSize: 9 }} /><Tooltip labelFormatter={(_label, payload) => payload?.[0]?.payload?.date ?? ''} formatter={(value, _name, item) => [`${fmt(Number(value ?? 0))} rows`, item.payload?.hasRows ? item.payload?.anomaly ? 'High observation-volume flag' : 'Observed detections' : 'No rows · coverage unknown']} /><Bar dataKey="detections" name="Observation rows" cursor="pointer" radius={[3, 3, 0, 0]}>{calendarDays.map(day => <Cell key={day.date} fill={anomalyRows.some(row => row.date === day.date) ? '#b95135' : day.hasRows ? '#d99a55' : '#dfe3dd'} onClick={() => day.hasRows && setSelectedDay(day.date)} />)}</Bar></BarChart></ResponsiveContainer></div></section><section className="panel anomaly-list"><div className="panel-heading"><div><div className="section-title"><AlertTriangle size={15} /><h2>Review flags</h2></div><p>Sorted by robust score</p></div></div>{observedDays.length < 14 ? <div className="empty-state">At least 14 observed days are needed for this exploratory screen. Current selection has {observedDays.length}.</div> : mad === 0 ? <div className="empty-state">The month has no measurable median absolute deviation. The robust score is undefined, so no anomaly flags are issued.</div> : anomalyRows.length ? <div className="flag-list">{anomalyRows.map(row => <button key={row.date} onClick={() => setSelectedDay(row.date)}><span>{row.date}</span><strong>{fmt(row.detections)} rows</strong><small>Robust Z {row.robustScore.toFixed(2)}</small></button>)}</div> : <div className="empty-state">No observed day exceeds the current threshold for this selection.</div>}</section></div>
-          <section className="panel baseline-note"><h2>Why this model stays modest</h2><p>Two calendar years do not provide a robust multi-year seasonal baseline for each month. FIREWATCH therefore labels this result as a within-month observation-volume outlier screen. It does not train a forecast model, infer fire severity, or treat missing rows as zero activity.</p></section>
+          <PageHeading icon={ChartNoAxesCombined} title="Observation outlook & alerts" subtitle="A seven-day FIRMS row-volume projection after the latest archive date." />
+          {forecastError && <div className="error-banner" role="alert">{forecastError}</div>}
+          {forecastBusy && <div className="panel forecast-loading">Building the forecast from the archive…</div>}
+          {forecast && forecast.status === 'insufficient_history' && <section className="panel forecast-message"><h2>Not enough history to forecast</h2><p>This selection has {forecast.history_days} days. At least {forecast.required_history_days} days are needed for one seasonal cycle and a holdout period.</p></section>}
+          {forecast?.status === 'ok' && <>
+            <section className="forecast-status panel"><div className="forecast-status-icon"><CalendarDays size={20} /></div><div><strong>Archive through {forecast.data_as_of}</strong><p>{forecastWindowPast ? `The projected dates have already passed; the archive is ${forecast.data_stale_days} days behind today. This is historical, not a live warning.` : forecast.data_stale_days ? `The archive is ${forecast.data_stale_days} days behind today. This is an archive-based estimate, not a live warning.` : 'Projection dates begin after the latest available observation date.'}</p></div><span className="forecast-stale">{forecast.data_stale_days ? 'ARCHIVE SNAPSHOT' : 'CURRENT SNAPSHOT'}</span></section>
+            <div className="forecast-overview-grid">
+              <section className="panel forecast-panel"><div className="forecast-panel-heading"><div><h2>Projection after archive cutoff</h2><p>{forecast.forecasts?.[0]?.date} — {forecast.forecasts?.at(-1)?.date}</p></div><span className="forecast-model-label">SEASONAL ROW-VOLUME MODEL</span></div>
+                <div className="forecast-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={forecast.forecasts ?? []} margin={{ top: 14, right: 16, bottom: 4, left: 0 }}><CartesianGrid vertical={false} stroke="#e5e8e2" /><XAxis dataKey="date" tickFormatter={value => String(value).slice(5)} tickLine={false} axisLine={false} tick={{ fill: '#647268', fontSize: 11 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#647268', fontSize: 11 }} /><Tooltip labelFormatter={value => String(value)} formatter={(value, _name, item) => [`${fmt(Number(value ?? 0))} expected rows`, item.payload?.watch ? 'High-volume watch' : 'Forecast']} /><Bar dataKey="expected_rows" name="Expected rows" radius={[4, 4, 0, 0]}>{(forecast.forecasts ?? []).map(day => <Cell key={day.date} fill={day.watch ? '#bb5739' : '#617b64'} />)}</Bar></BarChart></ResponsiveContainer></div>
+                <div className="forecast-method"><strong>How it works</strong><span>For each date, average the 15-day window around the same date last year. Backtest uses later dates only, compared with a single-day, one-year baseline.</span></div>
+              </section>
+              <aside className="forecast-side">
+                <section className="panel forecast-quality"><div className="forecast-panel-heading"><div><h2>Backtest</h2><p>{forecast.backtest?.holdout_days} later archive days</p></div></div><div className="forecast-score"><strong>{forecast.backtest ? fmt(Math.round(forecast.backtest.model.mae)) : '—'}</strong><span>mean absolute error · rows/day</span></div><div className="forecast-comparison"><span>Seasonal baseline</span><strong>{forecast.backtest ? fmt(Math.round(forecast.backtest.seasonal_naive_365d.mae)) : '—'} rows/day</strong></div><div className={forecast.backtest?.beats_seasonal_naive_on_mae ? 'forecast-result better' : 'forecast-result'}>{forecast.backtest?.beats_seasonal_naive_on_mae ? 'Lower average error than the baseline' : 'Did not beat the seasonal baseline'}</div><p className="forecast-warning">Backtest error is still high. Treat this as an experimental archive-volume estimate.</p></section>
+                <section className="panel forecast-watch"><div className="forecast-panel-heading"><div><h2>Volume watches</h2><p>Forecast above historical month 90th percentile</p></div><span className="watch-count">{forecast.forecasts?.filter(day => day.watch).length ?? 0}</span></div>{forecast.forecasts?.some(day => day.watch) ? <ul>{forecast.forecasts.filter(day => day.watch).map(day => <li key={day.date}><strong>{day.date}</strong><span>{fmt(Math.round(day.expected_rows))} expected rows</span></li>)}</ul> : <p className="watch-empty">No forecast days cross the watch threshold.</p>}</section>
+              </aside>
+            </div>
+          </>}
+          <section className="archive-alerts panel"><div className="forecast-panel-heading"><div><h2>Observed volume alerts</h2><p>{month} · filtered archive rows</p></div><label>Alert threshold <input type="number" min="2" max="5" step="0.5" value={anomalyCutoff} onChange={event => setAnomalyCutoff(Math.max(2, Math.min(5, Number(event.target.value) || 3.5)))} /> MAD</label></div>
+            <p className="archive-alert-copy">Flag a day when its observed row count is unusually high for this month. These are past data-review signals, not predicted fires.</p>
+            {observedDays.length < 14 ? <p className="watch-empty">At least 14 days with observations are needed for this screen.</p> : mad === 0 ? <p className="watch-empty">The selected month has no measurable variation for this threshold.</p> : anomalyRows.length ? <div className="archive-alert-list">{anomalyRows.map(row => <button key={row.date} onClick={() => { setSelectedDay(row.date); navigate('overview') }}><span className="alert-mark"><AlertTriangle size={17} /></span><span><strong>High observation volume</strong><small>{row.date} · {fmt(row.detections)} rows · robust score {row.robustScore.toFixed(1)}</small></span><span className="alert-review">Review day <ArrowRight size={14} /></span></button>)}</div> : <p className="watch-empty">No days cross the selected threshold.</p>}
+          </section>
+          <p className="forecast-disclaimer">FIREWATCH forecasts satellite observation volume—not fire starts, spread, severity, or danger. This page creates in-app review signals only; it does not send email, SMS, or push alarms. A day with no rows is not proof that no fire occurred.</p>
         </>}
 
         {page === 'links' && <>
@@ -430,7 +519,7 @@ function App() {
         {page === 'reports' && <>
           <PageHeading icon={ArrowDownToLine} title="Reports & export" subtitle="Create a printable record of the active filters and real FIRMS observations. Save the print view as PDF or export the underlying CSV." ><button className="export-button" onClick={() => window.print()} disabled={!candidates && !linkError}><ArrowDownToLine size={15} />{!candidates && !linkError ? 'Preparing report…' : 'Print / save PDF'}</button></PageHeading>
           <div className="report-actions"><button className="export-button" onClick={() => saveCsv(`firewatch_daily_${month}.csv`, calendar.map(row => ({ date_utc: row.date_utc, satellite: row.satellite, product_code: row.product_code, stream_type: row.stream_type, detection_count: row.detection_count, has_observation_rows: row.has_observation_rows, activity_state: row.activity_state })))}><ArrowDownToLine size={15} /> Export daily source rows</button><button className="export-button" onClick={() => saveCsv(`firewatch_satellites_${month}.csv`, bySatellite.map(row => ({ ...row })))}><ArrowDownToLine size={15} /> Export platform summary</button></div>
-          <article className="report-document panel"><div className="report-doc-head"><div><div className="heading-kicker"><FirewatchMark className="report-brand-mark" /> FIREWATCH | OBSERVATION REPORT</div><h2>Satellite fire observations - Cameroon</h2><p>Prepared {reportTimestamp} | Period {selectedDay ?? `${monthStart} to ${monthEnd}`} | UTC</p></div><span className="report-stamp">NASA FIRMS<br />MODIS + VIIRS</span></div><div className="report-rule" /><div className="report-context"><span>Platforms: {satellites.length ? satellites.join(', ') : allSatellites.join(', ') || 'Loading'}</span><span>Streams: {streams.length ? streams.join(', ') : allStreams.join(', ') || 'Loading'}</span><span>Source archive: {metadata?.date_min ?? 'unavailable'} to {metadata?.date_max ?? 'unavailable'}</span></div><h3>Observed activity</h3><p>FIRMS supplied <strong>{fmt(summary?.total_detections ?? 0)} observation rows</strong> matching this selection, distributed across <strong>{fmt(summary?.dates_with_rows ?? 0)} dates</strong>. These are source observations and are not counts of unique fires or burned area.</p><div className="report-mini-metrics"><div><strong>{fmt(summary?.total_detections ?? 0)}</strong><span>Source rows</span></div><div><strong>{fmt(mapResult?.displayed_cells ?? 0)}</strong><span>Map cells / points</span></div><div><strong>{new Set(sources.map(source => source.satellite)).size}</strong><span>Platform groups</span></div></div><h3>Platform breakdown</h3><div className="report-platform-list">{bySatellite.map(row => <div key={row.satellite}><span><i style={{ background: COLORS[row.product_code] }} />{row.satellite} | {row.product_code}</span><b>{fmt(row.detections)}</b></div>)}</div><h3>Cross-sensor association review</h3><p>{linkError ? 'Candidate-link calculation was unavailable for this report.' : candidates ? `${fmt(candidates.total_candidate_links)} observation pairs meet the ${distanceKm} km and ${timeHours} hour proximity rule.` : 'Candidate associations are being calculated.'} Pairs are review evidence, not event counts or confirmed fires.</p><h3>Daily observation-volume screen</h3><p>{observedDays.length} observed days; median {fmt(medianDaily)} rows per day; median absolute deviation {fmt(mad)}. The exploratory robust threshold is 3.5. {anomalyRows.length ? `${anomalyRows.length} high-volume flag(s) were identified.` : 'No high-volume flags were identified under this rule.'} This screen is not a seasonal anomaly or fire forecast.</p><h3>Coverage and scientific limitations</h3><ul><li>No rows indicate unknown satellite coverage and must not be read as zero fire activity.</li><li>Archive and near-real-time records can be successive processing versions; the streams are shown separately.</li><li>MODIS and VIIRS confidence and FRP values are not combined into a common score.</li><li>Spatial-temporal candidate links are possible associations only. This report does not claim confirmed fires or validated event clusters.</li></ul><div className="report-sources">Data: NASA Fire Information for Resource Management System (FIRMS), supplied local CSV archive. Map basemap: OpenStreetMap contributors. Report generated by FIREWATCH AI.</div></article>
+            <article className="report-document panel"><div className="report-doc-head"><div><div className="heading-kicker"><FirewatchMark className="report-brand-mark" /> FIREWATCH | OBSERVATION REPORT</div><h2>Satellite fire observations - Cameroon</h2><p>Prepared {reportTimestamp} | Period {selectedDay ?? `${monthStart} to ${monthEnd}`} | UTC</p></div><span className="report-stamp">NASA FIRMS<br />MODIS + VIIRS</span></div><div className="report-rule" /><div className="report-context"><span>Platforms: {satellites.length ? satellites.join(', ') : allSatellites.join(', ') || 'Loading'}</span><span>Streams: {streams.length ? streams.join(', ') : allStreams.join(', ') || 'Loading'}</span><span>Source archive: {metadata?.date_min ?? 'unavailable'} to {metadata?.date_max ?? 'unavailable'}</span></div><h3>Observed activity</h3><p>FIRMS supplied <strong>{fmt(summary?.total_detections ?? 0)} observation rows</strong> matching this selection, distributed across <strong>{fmt(summary?.dates_with_rows ?? 0)} dates</strong>. These are source observations and are not counts of unique fires or burned area.</p><div className="report-mini-metrics"><div><strong>{fmt(summary?.total_detections ?? 0)}</strong><span>Source rows</span></div><div><strong>{fmt(mapResult?.displayed_cells ?? 0)}</strong><span>Map cells / points</span></div><div><strong>{new Set(sources.map(source => source.satellite)).size}</strong><span>Platform groups</span></div></div><h3>Platform breakdown</h3><div className="report-platform-list">{bySatellite.map(row => <div key={row.satellite}><span><i style={{ background: COLORS[row.product_code] }} />{row.satellite} | {row.product_code}</span><b>{fmt(row.detections)}</b></div>)}</div><h3>Cross-sensor association review</h3><p>{linkError ? 'Candidate-link calculation was unavailable for this report.' : candidates ? `${fmt(candidates.total_candidate_links)} observation pairs meet the ${distanceKm} km and ${timeHours} hour proximity rule.` : 'Candidate associations are being calculated.'} Pairs are review evidence, not event counts or confirmed fires.</p><h3>Observed volume screen</h3><p>{observedDays.length} observed days; median {fmt(medianDaily)} rows per day; median absolute deviation {fmt(mad)}. The selected robust threshold is {anomalyCutoff}. {anomalyRows.length ? `${anomalyRows.length} unusually high-volume day(s) were identified.` : 'No days crossed the selected threshold.'} This is a data-review signal, not a fire alarm.</p><h3>Seven-day row-volume forecast</h3><p>{forecast?.status === 'ok' ? `The seasonal-window forecast estimates ${fmt(Math.round(forecastTotal))} observation rows for ${forecast.forecasts?.[0]?.date} through ${forecast.forecasts?.at(-1)?.date}, using archive records through ${forecast.data_as_of}. Rolling holdout MAE was ${fmt(Math.round(forecast.backtest?.model.mae ?? 0))} rows/day versus ${fmt(Math.round(forecast.backtest?.seasonal_naive_365d.mae ?? 0))} for the one-year baseline. Archive age: ${forecast.data_stale_days} days.` : 'Forecast is unavailable because this selection does not yet have enough daily history.'} This predicts sensor-record volume only, not fires or fire spread; there is no live alert feed.</p><h3>Coverage and scientific limitations</h3><ul><li>No rows indicate unknown satellite coverage and must not be read as zero fire activity.</li><li>Archive and near-real-time records can be successive processing versions; the streams are shown separately.</li><li>MODIS and VIIRS confidence and FRP values are not combined into a common score.</li><li>Spatial-temporal candidate links are possible associations only. This report does not claim confirmed fires or validated event clusters.</li></ul><div className="report-sources">Data: NASA Fire Information for Resource Management System (FIRMS), supplied local CSV archive. Map basemap: OpenStreetMap contributors. Report generated by FIREWATCH.</div></article>
         </>}
 
         {page === 'quality' && <>
@@ -442,7 +531,6 @@ function App() {
             <aside className="quality-rail"><section className="panel integrity-panel"><div className="panel-heading"><div><div className="section-title"><Check size={16} /><h2>Field completeness</h2></div><p>Missing values in loaded observations</p></div></div><div className="integrity-list">{Object.entries(quality?.missing_values ?? {}).map(([field, missing]) => <div key={field}><span>{field.replaceAll('_', ' ')}</span><b className={missing ? 'quality-nonzero' : ''}>{fmt(missing)}</b><small>{missing ? 'missing' : 'complete'}</small></div>)}</div></section>
               <section className="panel lineage-panel"><div className="panel-heading"><div><div className="section-title"><CircleHelp size={16} /><h2>Interpret with care</h2></div></div></div><ul><li>A hotspot is a thermal-anomaly observation, not a confirmed wildfire.</li><li>MODIS and VIIRS confidence fields have different meanings; no cross-sensor confidence score is calculated.</li><li>Archive and near-real-time processing streams can contain successive versions of observations.</li><li>Dates without rows indicate unknown coverage, not zero fire.</li></ul><button className="secondary-action" onClick={() => navigate('links')}>Review the association method</button></section></aside></div>
         </>}
-        <footer className="page-footer"><span>NASA FIRMS active-fire observations</span><span>{metadata ? `${fmt(metadata.total_records)} source rows · ${metadata.date_min} — ${metadata.date_max}` : 'Waiting for source metadata'}</span><span>UTC timestamps · Cameroon demo area</span></footer>
       </main></div>
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>

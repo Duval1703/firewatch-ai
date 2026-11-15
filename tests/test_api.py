@@ -1,11 +1,12 @@
 import tempfile
 import unittest
+import gzip
 from pathlib import Path
 
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from src.firewatch.api import create_app
+from src.firewatch.api import ObservationStore, create_app
 from src.firewatch.data_pipeline import discover_sources, normalize_source
 
 
@@ -92,6 +93,34 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(sum(row["detection_count"] for row in trends), 2)
         self.assertEqual({row["satellite"] for row in trends}, {"Aqua", "N20"})
         self.assertTrue(all(row["month"] == "2026-01" for row in trends))
+
+    def test_forecast_endpoint_is_filtered_and_reports_insufficient_history(self):
+        result = self.client.get("/api/forecast", params={"satellites": "N20"})
+        self.assertEqual(result.status_code, 200)
+        payload = result.json()
+        self.assertEqual(payload["status"], "insufficient_history")
+        self.assertEqual(payload["target"], "daily_valid_observation_rows")
+        self.assertEqual(payload["history_days"], 1)
+        self.assertEqual(payload["required_history_days"], 455)
+
+    def test_forecast_rejects_unbounded_horizon(self):
+        response = self.client.get("/api/forecast", params={"horizon_days": 15})
+        self.assertEqual(response.status_code, 422)
+
+    def test_store_reads_gzip_compressed_parquet(self):
+        compressed = self.root / "observations.parquet.gz"
+        compressed.write_bytes(gzip.compress(self.parquet.read_bytes()))
+
+        store = ObservationStore(compressed)
+
+        self.assertEqual(len(store.frame), 2)
+        filtered = store.filter(
+            pd.Timestamp("2026-01-01", tz="UTC"),
+            pd.Timestamp("2026-01-01", tz="UTC"),
+            satellites=["N20"],
+        )
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered.iloc[0]["satellite"], "N20")
 
     def test_invalid_date_order_and_map_bounds_are_rejected(self):
         response = self.client.get(

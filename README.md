@@ -8,16 +8,17 @@ FIREWATCH AI is a Cameroon-first exploration tool for NASA FIRMS MODIS and VIIRS
 - Source-preserving normalization into Parquet with UTC timestamps and quality flags.
 - Pairwise cross-satellite candidate links with distance/time evidence.
 - Coverage-cautious daily observation calendar.
-- FastAPI endpoints and a Vite/React/Leaflet application with eight addressable modules: Overview, Satellite explorer, Activity calendar, Fire analytics, Anomaly intelligence, Candidate links, Reports, and Data quality. Sidebar navigation uses URL routes and browser back/forward; platform and stream filters are shared across pages.
+- FastAPI endpoints and a Vite/React/Leaflet application with a project landing page and nine addressable workspace modules: Overview, Satellite explorer, Activity calendar, Fire analytics, Alerts & forecast, Candidate links, Reports, Data quality, and Data assistant. Sidebar navigation uses URL routes and browser back/forward; platform and stream filters are shared across pages.
 - Monthly platform comparison over the delivered archive, with periods without rows left unfilled because coverage is unknown.
-- Explainable robust-Z screening for unusually high daily observation volume within the selected month. No-row days are excluded; this is not seasonal anomaly detection, fire-event classification, or wildfire prediction.
+- Explainable robust-Z screening for unusually high daily observation volume within the selected month, surfaced as archive review alerts.
+- Experimental seven-day seasonal-window forecast of FIRMS row volume with chronological baseline metrics and month-specific high-volume watches. It forecasts source rows, not fires or fire risk; the archive is not a live alert feed.
 - Candidate-link review with adjustable distance/time limits, platform/family filters, map overlay, evidence table, and CSV export. Candidate edges remain possible associations, never deduplicated or confirmed fires.
-- Printable observation reports with measured counts, platform breakdown, candidate-link context, anomaly-screen summary, and limitations, plus daily/platform CSV exports.
+- Printable observation reports with measured counts, platform breakdown, candidate-link context, forecast/backtest summary, and limitations, plus daily/platform CSV exports.
 - A read-only quality API and provenance page showing source inventory, validation status, duplicate IDs, and missing-value counts.
 
 Candidate links are not confirmed fires. A detection date with no rows does not prove there was no fire or that a sensor had valid coverage. See `reports/` for the staged technical record and methodology.
 
-The anomaly screen compares daily counts across observed dates in the selected month using median absolute deviation (modified robust Z score, default threshold 3.5) and requires at least 14 observed days. It is a within-month observation-volume review aid, not a seasonal or fire-risk model. The supplied archive does not provide enough years to validate a multi-year month-specific anomaly baseline.
+The archive alert screen compares daily counts across observed dates in the selected month using median absolute deviation (modified robust Z score, default threshold 3.5) and requires at least 14 observed days. The row-volume forecast averages a 15-day window around the same date in the prior year; it is benchmarked against the single same-date-last-year count. On the current 306-day rolling holdout, MAE was 936 rows/day versus 1,022 for the baseline and WAPE was 68.6%. This is experimental, forecasts row volume only, and must not be presented as a fire-risk model or operational alarm.
 
 ## Environment
 
@@ -118,7 +119,7 @@ Run unit and API tests:
 py -3.11 -m unittest discover -s tests -v
 ```
 
-The read-only API exposes `/api/health`, `/api/metadata`, `/api/summary`, `/api/map`, `/api/calendar`, `/api/trends`, `/api/candidate-links`, and `/api/quality`. Interactive API documentation is at `http://127.0.0.1:8000/docs`.
+The read-only API exposes `/api/health`, `/api/metadata`, `/api/summary`, `/api/map`, `/api/calendar`, `/api/trends`, `/api/candidate-links`, `/api/quality`, and `/api/forecast`. Interactive API documentation is at `http://127.0.0.1:8000/docs`.
 
 ## Data and design record
 

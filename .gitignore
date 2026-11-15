@@ -4,7 +4,14 @@ __pycache__/
 web/node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+web/public/landing/
 data/processed/*.parquet
 data/reference/granules/
 data/tmp_chrome_*/
 reports/tmp_submission_guide-*.png
+2025/
+2026/
+data/*
+!data/processed/
+data/processed/*
+!data/processed/observations.deploy.parquet.gz
