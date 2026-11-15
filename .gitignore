@@ -6,3 +6,5 @@ web/dist/
 web/tsconfig.tsbuildinfo
 data/processed/*.parquet
 data/reference/granules/
+data/tmp_chrome_*/
+reports/tmp_submission_guide-*.png
